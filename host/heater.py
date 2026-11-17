@@ -623,6 +623,16 @@ class IndxToolboardHeater:
         vin = read_value * 3.3 * (4700 + 60400) / 4700
         self.supply_voltage = vin
 
+    def get_model_status(self):
+        # Live thermal-model parameters, exposed to macros as
+        # printer.<toolboard>.model (e.g. printer.indx.model.filament_density).
+        # The calibrated fields are None until INDX_CALIBRATE has run.
+        params = self.thermal_model.params._asdict()
+        radius = params.pop("filament_radius")
+        params["filament_diameter"] = radius * 2.0
+        params["valid"] = self.thermal_model.is_valid()
+        return params
+
     def set_target_temp(self, target_temp):
         if target_temp == 0.0:
             target_temp = float("nan")
@@ -1372,15 +1382,12 @@ class IndxToolboardHeater:
 
         heat_capacity = loaded_energy / loaded_denominator
         if apply_result:
+            # Live model only. The heater is shared by every tool, so the
+            # result is not written to the [indx] config section: the tool
+            # macros store it per tool (from printer.indx.model) instead.
             self.thermal_model.params = params._replace(
                 filament_density=1.0,
                 filament_heat_capacity=heat_capacity,
-            )
-            configfile = self.toolboard.printer.lookup_object("configfile")
-            section = self.toolboard.name
-            configfile.set(section, "model_filament_density", "1.0000")
-            configfile.set(
-                section, "model_filament_heat_capacity", "%.4f" % heat_capacity
             )
         gcmd.respond_info(
             "INDX filament loaded after %.1f mm; primed %.1f mm.\n"
@@ -1391,7 +1398,7 @@ class IndxToolboardHeater:
                 loaded_at_pos - start_pos,
                 last_pos - loaded_at_pos,
                 heat_capacity,
-                "Run SAVE_CONFIG to save the new filament parameters."
+                "Applied to the live thermal model."
                 if apply_result
                 else "Use APPLY=1 to apply the measured filament parameters.",
             )
